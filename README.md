@@ -26,7 +26,7 @@ npm install
 ### 2. Make sure MongoDB is running
 Open MongoDB Compass and connect to `mongodb://localhost:27017`
 
-### 3. Create `.env` file (already included)
+### 3. Create `.env` file 
 ```
 MONGO_URI=mongodb://localhost:27017/garbage_optimizer
 PORT=3000
