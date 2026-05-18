@@ -128,3 +128,7 @@ garbage-optimizer/
 ├── simulator.js           # IoT fill simulator
 └── .env                   # Config
 ```
+
+
+
+TRYING TO DEPLOY IT SOON AND FURTHER DEVELOPMENTS TO INCLUDE MORE CITIES SOON>>>...
