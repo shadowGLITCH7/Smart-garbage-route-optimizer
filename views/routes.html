@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GarbageOpt — Route Planner</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-brand">GarbageOpt</div>
+  <div class="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/routes" class="active">Route Planner</a>
+    <a href="/analytics">Analytics</a>
+    <a href="/manage">Manage</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px"><span id="nav-user" style="font-size:0.75rem;color:#999"></span><button onclick="logout()" class="btn-secondary" style="padding:5px 12px;font-size:0.75rem">Logout</button><div class="nav-status"><span class="live-dot"></span> Live</div></div>
+</nav>
+
+<div class="route-layout">
+
+  <div class="route-panel">
+
+    <div>
+      <div class="panel-title">Route Optimizer</div>
+      <div style="font-size:0.75rem;color:var(--muted2);margin-top:4px">Nearest-neighbour + 2-opt algorithm. Only bins above the fill threshold are included.</div>
+    </div>
+
+    <div>
+      <div class="form-group">
+        <label>Zone</label>
+        <select id="zone-select">
+          <option value="All">All Zones</option>
+          <option value="Zone A">Zone A</option>
+          <option value="Zone B">Zone B</option>
+          <option value="Zone C">Zone C</option>
+          <option value="Zone D">Zone D</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Assign Truck</label>
+        <select id="truck-select">
+          <option value="T-01">Truck T-01</option>
+          <option value="T-02">Truck T-02</option>
+          <option value="T-03">Truck T-03</option>
+          <option value="T-04">Truck T-04</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Fill Threshold: <span id="thresh-val">50</span>%</label>
+        <input type="range" id="threshold" min="10" max="100" value="50"
+          oninput="document.getElementById('thresh-val').textContent=this.value">
+      </div>
+      <button class="btn-primary full-width" id="gen-btn" onclick="generateRoute()">
+        Generate Route
+      </button>
+    </div>
+
+    <div class="route-summary" id="route-summary">
+      <div class="summary-grid">
+        <div class="summary-stat"><div class="val" id="s-bins">—</div><div class="lbl">Bins</div></div>
+        <div class="summary-stat"><div class="val" id="s-dist">—</div><div class="lbl">Distance</div></div>
+        <div class="summary-stat"><div class="val" id="s-time">—</div><div class="lbl">Duration</div></div>
+        <div class="summary-stat"><div class="val" id="s-co2" style="color:var(--green)">—</div><div class="lbl">CO2 Saved</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
+        <button class="btn-secondary full-width" id="share-btn" onclick="showShareModal()" style="display:none">Share with Driver</button>
+        <button class="btn-danger full-width" id="complete-btn" onclick="completeRoute()" style="display:none">Mark Route Complete</button>
+      </div>
+    </div>
+
+    <div id="steps-container" style="display:none">
+      <div class="section-header">Collection Stops</div>
+      <div class="route-steps" id="route-steps"></div>
+    </div>
+
+    <div id="skipped-info" style="display:none;font-size:0.72rem;color:var(--muted);padding:10px;background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border)"></div>
+
+    <div>
+      <div class="section-header">Recent Routes</div>
+      <div id="saved-routes" style="display:flex;flex-direction:column;gap:4px"></div>
+    </div>
+
+  </div>
+
+  <div class="map-area">
+    <div id="map"></div>
+    <div class="map-legend">
+      <div class="legend-item"><span style="display:inline-block;width:10px;height:10px;background:var(--text);border-radius:2px;margin-right:2px"></span> Depot</div>
+      <div class="legend-item"><span class="dot" style="background:var(--text)"></span> Collection stop</div>
+      <div class="legend-item"><span style="color:var(--text);font-weight:700;font-size:1rem;line-height:1">&#8212;</span> Road route</div>
+    </div>
+  </div>
+</div>
+
+<!-- Share Modal -->
+<div id="share-modal" class="modal hidden">
+  <div class="modal-box" style="width:460px">
+    <button class="modal-close" onclick="document.getElementById('share-modal').classList.add('hidden')">x</button>
+    <div style="font-weight:700;font-size:0.9rem;margin-bottom:4px">Share Route with Driver</div>
+    <div style="font-size:0.75rem;color:var(--muted2);margin-bottom:1rem" id="share-subtitle"></div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);
+      padding:10px;font-size:0.7rem;color:var(--muted);word-break:break-all;
+      max-height:80px;overflow-y:auto;margin-bottom:1rem;font-family:monospace;line-height:1.6"
+      id="share-link-box"></div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);
+      padding:10px;font-size:0.75rem;color:var(--muted);margin-bottom:1rem">
+      Send this link via WhatsApp. Tapping it on Android opens Google Maps with all stops pre-loaded.
+    </div>
+    <div id="waypoint-warning" style="display:none;background:#fff8f0;border:1px solid #f0c080;
+      border-radius:var(--radius);padding:10px;font-size:0.75rem;color:#7a4a00;margin-bottom:1rem">
+      Google Maps supports a maximum of 9 waypoints. Route has been split into multiple links below.
+    </div>
+    <div id="extra-links" style="display:none;flex-direction:column;gap:6px;margin-bottom:1rem"></div>
+    <div style="display:flex;gap:8px">
+      <button onclick="copyShareLink()" class="btn-primary" style="flex:1">Copy Link</button>
+      <a id="open-maps-btn" href="#" target="_blank" class="btn-secondary"
+        style="flex:1;text-align:center;display:flex;align-items:center;justify-content:center">
+        Open in Maps
+      </a>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const DEPOT = { lat: 23.3441, lon: 85.3096 };
+let map, routeLayer = null, markerLayer = [], currentRouteId = null, currentOptimized = [];
+
+map = L.map('map').setView([DEPOT.lat, DEPOT.lon], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
+
+L.marker([DEPOT.lat, DEPOT.lon], {
+  icon: L.divIcon({ className: '', html: '<div class="depot-marker">DEPOT</div>', iconSize: [60,24], iconAnchor: [30,24] })
+}).addTo(map).bindPopup('<b>Main Depot</b><br>Start &amp; End');
+
+function fillColor(level) {
+  if (level >= 80) return '#c0392b';
+  if (level >= 50) return '#b7820a';
+  return '#1a7a3a';
+}
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function clearRoute() {
+  markerLayer.forEach(m => map.removeLayer(m)); markerLayer = [];
+  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+}
+
+async function getRoadSegment(from, to) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.code === 'Ok') return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+  } catch(e) {}
+  return [from, to];
+}
+
+async function generateRoute() {
+  const zone = document.getElementById('zone-select').value;
+  const truck = document.getElementById('truck-select').value;
+  const threshold = parseInt(document.getElementById('threshold').value);
+  const btn = document.getElementById('gen-btn');
+  btn.textContent = 'Generating...'; btn.disabled = true;
+  try {
+    const res = await fetch('/api/routes/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zone, truck, threshold })
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
+    currentRouteId = data.route._id;
+    currentOptimized = data.optimized;
+    renderSummary(data.summary);
+    renderSteps(data.optimized);
+    async function checkAuth() {
+  const res = await fetch("/api/auth/me");
+  if (!res.ok) { location.href="/login"; return; }
+  const { user } = await res.json();
+  document.getElementById("nav-user").textContent = user.name;
+}
+async function logout() {
+  await fetch("/api/auth/logout", { method:"POST" });
+  location.href="/login";
+}
+checkAuth();
+loadSavedRoutes();
+    await drawRoute(data);
+    showToast(`Route generated — ${data.summary.collected} bins, ${data.summary.totalDistance} km`);
+  } catch(e) {
+    showToast('Server error', 'error');
+  } finally {
+    btn.textContent = 'Generate Route'; btn.disabled = false;
+  }
+}
+
+async function drawRoute(data) {
+  clearRoute();
+  const { optimized } = data;
+  if (!optimized.length) return;
+
+  const stopCoords = [[DEPOT.lat, DEPOT.lon]];
+  optimized.forEach((item, i) => {
+    const bin = item.bin;
+    const color = fillColor(bin.fillLevel);
+    const m = L.marker([bin.location.lat, bin.location.lon], {
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="background:#fff;border:2px solid ${color};border-radius:5px;padding:3px 6px;
+          text-align:center;min-width:44px;box-shadow:0 1px 6px rgba(0,0,0,0.15)">
+          <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.05em;color:#555;text-transform:uppercase">#${i+1}</div>
+          <div style="font-size:0.65rem;font-weight:700;color:${color};font-family:Inter,sans-serif">${bin.fillLevel}%</div>
+        </div>`,
+        iconSize: [44, 40], iconAnchor: [22, 40]
+      })
+    }).addTo(map).bindPopup(`<b>${bin.binId}</b><br>${bin.location.address}<br>Fill: <b style="color:${color}">${bin.fillLevel}%</b>`);
+    markerLayer.push(m);
+    stopCoords.push([bin.location.lat, bin.location.lon]);
+  });
+  stopCoords.push([DEPOT.lat, DEPOT.lon]);
+
+  showToast('Fetching road route...', 'info');
+  const allRoadCoords = [];
+  for (let i = 0; i < stopCoords.length - 1; i++) {
+    const seg = await getRoadSegment(stopCoords[i], stopCoords[i+1]);
+    allRoadCoords.push(...seg);
+    if (routeLayer) map.removeLayer(routeLayer);
+    routeLayer = L.polyline(allRoadCoords, { color: '#0a0a0a', weight: 3, opacity: 0.8 }).addTo(map);
+  }
+
+  const step = Math.max(1, Math.floor(allRoadCoords.length / 10));
+  for (let i = 0; i < allRoadCoords.length - 1; i += step) {
+    const from = allRoadCoords[i], to = allRoadCoords[i+1];
+    const angle = Math.atan2(to[1]-from[1], to[0]-from[0]) * 180 / Math.PI;
+    const mid = [(from[0]+to[0])/2, (from[1]+to[1])/2];
+    const arrow = L.marker(mid, {
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="transform:rotate(${angle}deg);color:#0a0a0a;font-size:14px;font-weight:900">&#9658;</div>`,
+        iconSize: [14,14], iconAnchor: [7,7]
+      })
+    }).addTo(map);
+    markerLayer.push(arrow);
+  }
+
+  map.fitBounds(routeLayer.getBounds(), { padding: [50,50] });
+  showToast('Road route loaded');
+}
+
+function renderSummary(summary) {
+  document.getElementById('s-bins').textContent = summary.collected;
+  document.getElementById('s-dist').textContent = summary.totalDistance + ' km';
+  const h = Math.floor(summary.estimatedDuration/60), m = summary.estimatedDuration%60;
+  document.getElementById('s-time').textContent = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  document.getElementById('s-co2').textContent = summary.co2Saved + ' kg';
+  document.getElementById('route-summary').classList.add('show');
+  document.getElementById('complete-btn').style.display = 'block';
+  document.getElementById('share-btn').style.display = 'block';
+  if (summary.skipped > 0) {
+    const s = document.getElementById('skipped-info');
+    s.style.display = 'block';
+    s.textContent = `${summary.skipped} bin(s) skipped — below the fill threshold.`;
+  }
+}
+
+function renderSteps(optimized) {
+  document.getElementById('steps-container').style.display = 'block';
+  document.getElementById('route-steps').innerHTML = `
+    <div class="route-step">
+      <div class="step-num depot">S</div>
+      <div class="step-info"><div class="step-name">Main Depot</div><div class="step-addr">Start of route</div></div>
+    </div>
+    ${optimized.map((item,i) => `
+      <div class="route-step">
+        <div class="step-num">${i+1}</div>
+        <div class="step-info">
+          <div class="step-name">${item.bin.binId} &mdash; ${item.bin.type}</div>
+          <div class="step-addr">${item.bin.location.address}</div>
+        </div>
+        <div class="step-dist">${item.distFromPrev} km</div>
+      </div>`).join('')}
+    <div class="route-step">
+      <div class="step-num depot">E</div>
+      <div class="step-info"><div class="step-name">Return to Depot</div><div class="step-addr">End of route</div></div>
+    </div>`;
+}
+
+async function completeRoute() {
+  if (!currentRouteId) return;
+  const btn = document.getElementById('complete-btn');
+  btn.textContent = 'Completing...'; btn.disabled = true;
+  await fetch(`/api/routes/${currentRouteId}/complete`, { method: 'PATCH' });
+  showToast('Route completed — all bins reset');
+  clearRoute();
+  document.getElementById('route-summary').classList.remove('show');
+  document.getElementById('steps-container').style.display = 'none';
+  document.getElementById('skipped-info').style.display = 'none';
+  document.getElementById('share-btn').style.display = 'none';
+  btn.style.display = 'none'; btn.disabled = false;
+  currentRouteId = null; currentOptimized = [];
+  async function checkAuth() {
+  const res = await fetch("/api/auth/me");
+  if (!res.ok) { location.href="/login"; return; }
+  const { user } = await res.json();
+  document.getElementById("nav-user").textContent = user.name;
+}
+async function logout() {
+  await fetch("/api/auth/logout", { method:"POST" });
+  location.href="/login";
+}
+checkAuth();
+loadSavedRoutes();
+}
+
+function buildGoogleMapsLink(stops) {
+  const origin = `${DEPOT.lat},${DEPOT.lon}`;
+  const waypoints = stops.map(s=>`${s.lat},${s.lon}`).join('|');
+  return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${origin}&waypoints=${encodeURIComponent(waypoints)}&travelmode=driving`;
+}
+
+function showShareModal() {
+  if (!currentOptimized.length) return;
+  const stops = currentOptimized.map(item => ({ lat: item.bin.location.lat, lon: item.bin.location.lon }));
+  const MAX_WP = 9;
+  const link = buildGoogleMapsLink(stops.slice(0, MAX_WP));
+  document.getElementById('share-link-box').textContent = link;
+  document.getElementById('open-maps-btn').href = link;
+  document.getElementById('share-subtitle').textContent =
+    `${Math.min(stops.length, MAX_WP)} stops for ${document.getElementById('truck-select').value}. Opens Google Maps navigation on Android.`;
+
+  const extraEl = document.getElementById('extra-links');
+  const warnEl = document.getElementById('waypoint-warning');
+  if (stops.length > MAX_WP) {
+    warnEl.style.display = 'block'; extraEl.style.display = 'flex';
+    let html = '';
+    for (let i = MAX_WP; i < stops.length; i += MAX_WP) {
+      const chunkLink = buildGoogleMapsLink(stops.slice(i, i+MAX_WP));
+      const part = Math.floor(i/MAX_WP)+2;
+      html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px;font-size:0.75rem">
+        <div style="font-weight:600;color:var(--muted);margin-bottom:6px">Part ${part} &mdash; Stops ${i+1}&ndash;${Math.min(i+MAX_WP,stops.length)}</div>
+        <div style="display:flex;gap:6px">
+          <button onclick="navigator.clipboard.writeText('${chunkLink}').then(()=>showToast('Part ${part} copied'))"
+            class="btn-secondary" style="flex:1;font-size:0.75rem;padding:6px">Copy</button>
+          <a href="${chunkLink}" target="_blank" class="btn-primary"
+            style="flex:1;font-size:0.75rem;padding:6px;text-align:center;display:flex;align-items:center;justify-content:center">Open</a>
+        </div>
+      </div>`;
+    }
+    extraEl.innerHTML = html;
+  } else {
+    warnEl.style.display = 'none'; extraEl.style.display = 'none';
+  }
+  document.getElementById('share-modal').classList.remove('hidden');
+}
+
+function copyShareLink() {
+  const link = document.getElementById('share-link-box').textContent;
+  navigator.clipboard.writeText(link).then(() => showToast('Link copied'));
+}
+
+async function loadSavedRoutes() {
+  const routes = await fetch('/api/routes').then(r => r.json());
+  const container = document.getElementById('saved-routes');
+  if (!routes.length) { container.innerHTML = '<div style="font-size:0.75rem;color:var(--muted2)">No routes yet.</div>'; return; }
+  const statusColor = s => s === 'completed' ? 'var(--green)' : s === 'in-progress' ? 'var(--yellow)' : '#2563eb';
+  container.innerHTML = routes.slice(0,6).map(r => `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+        <span style="font-size:0.75rem;font-weight:600">${r.routeId}</span>
+        <span style="font-size:0.68rem;font-weight:600;color:${statusColor(r.status)};text-transform:capitalize">${r.status}</span>
+      </div>
+      <div style="font-size:0.68rem;color:var(--muted2)">${r.truck} &mdash; ${r.zone} &mdash; ${r.totalDistance} km &mdash; ${r.bins.length} bins</div>
+    </div>`).join('');
+}
+
+async function checkAuth() {
+  const res = await fetch("/api/auth/me");
+  if (!res.ok) { location.href="/login"; return; }
+  const { user } = await res.json();
+  document.getElementById("nav-user").textContent = user.name;
+}
+async function logout() {
+  await fetch("/api/auth/logout", { method:"POST" });
+  location.href="/login";
+}
+checkAuth();
+loadSavedRoutes();
+</script>
+</body>
+</html>

@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GarbageOpt — Manage</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    html, body { overflow: auto; height: auto; }
+    .manage-layout { max-width: 1100px; margin: 0 auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
+    .manage-title { font-size: 1rem; font-weight: 700; }
+    .section-card { background: #fff; border: 1px solid #e4e4e4; border-radius: 8px; overflow: hidden; }
+    .section-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #e4e4e4; }
+    .section-head-title { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #999; }
+    .form-row { display: grid; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #e4e4e4; }
+    .form-row.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr auto; }
+    .form-row.cols-5 { grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto; }
+    .form-row.cols-6 { grid-template-columns: 1fr 1fr 1fr 80px 80px 80px auto; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #999; }
+    .field input, .field select { background: #f7f7f7; border: 1px solid #e4e4e4; border-radius: 6px; padding: 7px 10px; font-family: Inter,sans-serif; font-size: 0.8rem; color: #0a0a0a; outline: none; width: 100%; }
+    .field input:focus, .field select:focus { border-color: #0a0a0a; background: #fff; }
+    .btn-add { background: #0a0a0a; color: #fff; border: none; border-radius: 6px; padding: 7px 14px; font-family: Inter,sans-serif; font-weight: 600; font-size: 0.78rem; cursor: pointer; white-space: nowrap; align-self: flex-end; }
+    .btn-add:hover { opacity: 0.8; }
+    .btn-del { background: none; border: 1px solid #e4e4e4; border-radius: 6px; padding: 5px 10px; font-family: Inter,sans-serif; font-size: 0.72rem; color: #c0392b; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+    .btn-del:hover { background: #fff5f5; border-color: #f5c0c0; }
+    .btn-sm { background: none; border: 1px solid #e4e4e4; border-radius: 6px; padding: 4px 10px; font-family: Inter,sans-serif; font-size: 0.72rem; color: #3a3a3a; cursor: pointer; }
+    .btn-sm:hover { border-color: #0a0a0a; }
+    .empty-row td { text-align: center; color: #999; padding: 2rem !important; font-size: 0.78rem; }
+    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .status-available { background: #e8f5ee; color: #1a7a3a; }
+    .status-on-route  { background: #fff8e0; color: #b7820a; }
+    .status-maintenance { background: #fee; color: #c0392b; }
+    .status-active    { background: #e8f5ee; color: #1a7a3a; }
+    .status-offline   { background: #f5f5f5; color: #999; }
+    .fill-inline { display: flex; align-items: center; gap: 6px; }
+    .fill-bar-sm { flex: 1; height: 4px; background: #eee; border-radius: 2px; overflow: hidden; }
+    .fill-bar-sm div { height: 100%; border-radius: 2px; }
+
+    /* Route history */
+    .route-status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .route-pending     { background: #e8eeff; color: #2563eb; }
+    .route-in-progress { background: #fff8e0; color: #b7820a; }
+    .route-completed   { background: #e8f5ee; color: #1a7a3a; }
+
+    .tab-bar { display: flex; gap: 2px; padding: 0 1.5rem; border-bottom: 1px solid #e4e4e4; background: #fff; }
+    .pg-tab { padding: 10px 16px; font-size: 0.78rem; font-weight: 600; color: #999; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .pg-tab.active { color: #0a0a0a; border-bottom-color: #0a0a0a; }
+    .pg-content { display: none; }
+    .pg-content.active { display: block; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-brand">GarbageOpt</div>
+  <div class="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/routes">Route Planner</a>
+    <a href="/analytics">Analytics</a>
+    <a href="/manage" class="active">Manage</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span id="nav-user" style="font-size:0.75rem;color:#999"></span>
+    <button onclick="logout()" class="btn-secondary" style="padding:5px 12px;font-size:0.75rem">Logout</button>
+    <div class="nav-status"><span class="live-dot"></span> Live</div>
+  </div>
+</nav>
+
+<div class="tab-bar">
+  <button class="pg-tab active" onclick="switchPage('trucks',this)">Trucks</button>
+  <button class="pg-tab" onclick="switchPage('bins',this)">Bins</button>
+  <button class="pg-tab" onclick="switchPage('routes',this)">Route History</button>
+</div>
+
+<div class="manage-layout">
+
+  <!-- ── TRUCKS ────────────────────────────────────── -->
+  <div id="pg-trucks" class="pg-content active">
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-head-title">Add New Truck</div>
+      </div>
+      <div class="form-row cols-5">
+        <div class="field"><label>Truck ID</label><input id="t-id" placeholder="T-05"></div>
+        <div class="field"><label>Driver Name</label><input id="t-driver" placeholder="Driver name"></div>
+        <div class="field"><label>Phone</label><input id="t-phone" placeholder="98xxxxxxxx"></div>
+        <div class="field"><label>Zone</label>
+          <select id="t-zone">
+            <option value="All">All Zones</option>
+            <option value="Zone A">Zone A</option>
+            <option value="Zone B">Zone B</option>
+            <option value="Zone C">Zone C</option>
+            <option value="Zone D">Zone D</option>
+          </select>
+        </div>
+        <div class="field"><label>Capacity (kg)</label><input id="t-cap" type="number" placeholder="5000" value="5000"></div>
+        <button class="btn-add" onclick="addTruck()">Add Truck</button>
+      </div>
+      <table class="logs-table" style="margin:0">
+        <thead><tr><th>Truck ID</th><th>Driver</th><th>Phone</th><th>Zone</th><th>Capacity</th><th>Status</th><th></th></tr></thead>
+        <tbody id="truck-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── BINS ──────────────────────────────────────── -->
+  <div id="pg-bins" class="pg-content">
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-head-title">Add New Bin</div>
+      </div>
+      <div class="form-row cols-6">
+        <div class="field"><label>Bin ID</label><input id="b-id" placeholder="BIN-E01"></div>
+        <div class="field"><label>Address</label><input id="b-addr" placeholder="Street, Area"></div>
+        <div class="field"><label>Zone</label>
+          <select id="b-zone">
+            <option value="Zone A">Zone A</option>
+            <option value="Zone B">Zone B</option>
+            <option value="Zone C">Zone C</option>
+            <option value="Zone D">Zone D</option>
+          </select>
+        </div>
+        <div class="field"><label>Type</label>
+          <select id="b-type">
+            <option value="general">General</option>
+            <option value="recyclable">Recyclable</option>
+            <option value="organic">Organic</option>
+          </select>
+        </div>
+        <div class="field"><label>Lat</label><input id="b-lat" type="number" step="0.0001" placeholder="23.3441"></div>
+        <div class="field"><label>Lon</label><input id="b-lon" type="number" step="0.0001" placeholder="85.3096"></div>
+        <button class="btn-add" onclick="addBin()">Add Bin</button>
+      </div>
+      <table class="logs-table" style="margin:0">
+        <thead><tr><th>Bin ID</th><th>Address</th><th>Zone</th><th>Type</th><th>Fill Level</th><th>Status</th><th></th></tr></thead>
+        <tbody id="bin-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── ROUTE HISTORY ─────────────────────────────── -->
+  <div id="pg-routes" class="pg-content">
+    <div class="section-card">
+      <div class="section-head">
+        <div class="section-head-title">All Routes</div>
+        <span style="font-size:0.72rem;color:#999">Click a pending route to mark it complete</span>
+      </div>
+      <table class="logs-table" style="margin:0">
+        <thead>
+          <tr>
+            <th>Route ID</th>
+            <th>Truck</th>
+            <th>Zone</th>
+            <th>Bins</th>
+            <th>Distance</th>
+            <th>Created</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="route-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+function switchPage(page, btn) {
+  document.querySelectorAll('.pg-content').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.pg-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('pg-' + page).classList.add('active');
+  btn.classList.add('active');
+  if (page==='trucks') loadTrucks();
+  if (page==='bins')   loadBins();
+  if (page==='routes') loadRoutes();
+}
+
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type?' '+type:'');
+  clearTimeout(t._t);
+  t._t = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+
+function fillColor(level) {
+  if (level>=80) return '#c0392b';
+  if (level>=50) return '#b7820a';
+  return '#1a7a3a';
+}
+
+// ── AUTH ──────────────────────────────────────────────
+async function checkAuth() {
+  const res = await fetch('/api/auth/me');
+  if (!res.ok) { location.href='/login'; return; }
+  const { user } = await res.json();
+  document.getElementById('nav-user').textContent = user.name;
+}
+async function logout() {
+  await fetch('/api/auth/logout', { method:'POST' });
+  location.href='/login';
+}
+
+// ── TRUCKS ────────────────────────────────────────────
+async function loadTrucks() {
+  const trucks = await fetch('/api/trucks').then(r=>r.json());
+  const tbody = document.getElementById('truck-body');
+  if (!trucks.length) { tbody.innerHTML='<tr><td colspan="7" class="empty-row">No trucks yet. Add one above.</td></tr>'; return; }
+  tbody.innerHTML = trucks.map(t => `
+    <tr>
+      <td><b>${t.truckId}</b></td>
+      <td>${t.driver}</td>
+      <td>${t.phone||'—'}</td>
+      <td>${t.zone}</td>
+      <td>${t.capacity.toLocaleString()} kg</td>
+      <td><span class="status-badge status-${t.status.replace('-','-')}">${t.status}</span></td>
+      <td style="display:flex;gap:4px">
+        <select onchange="updateTruckStatus('${t._id}',this.value)" class="btn-sm" style="padding:4px 8px">
+          <option value="available" ${t.status==='available'?'selected':''}>Available</option>
+          <option value="on-route"  ${t.status==='on-route'?'selected':''}>On Route</option>
+          <option value="maintenance" ${t.status==='maintenance'?'selected':''}>Maintenance</option>
+        </select>
+        <button class="btn-del" onclick="deleteTruck('${t._id}')">Delete</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function addTruck() {
+  const truckId = document.getElementById('t-id').value.trim();
+  const driver  = document.getElementById('t-driver').value.trim();
+  const phone   = document.getElementById('t-phone').value.trim();
+  const zone    = document.getElementById('t-zone').value;
+  const capacity= parseInt(document.getElementById('t-cap').value)||5000;
+  if (!truckId||!driver) return showToast('Truck ID and driver name are required','error');
+  const res = await fetch('/api/trucks', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({truckId,driver,phone,zone,capacity}) });
+  const data = await res.json();
+  if (!res.ok) return showToast(data.error,'error');
+  showToast('Truck added');
+  document.getElementById('t-id').value=''; document.getElementById('t-driver').value='';
+  document.getElementById('t-phone').value='';
+  loadTrucks();
+}
+
+async function updateTruckStatus(id, status) {
+  await fetch('/api/trucks/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status}) });
+  showToast('Truck status updated');
+  loadTrucks();
+}
+
+async function deleteTruck(id) {
+  if (!confirm('Delete this truck?')) return;
+  await fetch('/api/trucks/'+id, { method:'DELETE' });
+  showToast('Truck deleted');
+  loadTrucks();
+}
+
+// ── BINS ──────────────────────────────────────────────
+async function loadBins() {
+  const bins = await fetch('/api/bins').then(r=>r.json());
+  const tbody = document.getElementById('bin-body');
+  if (!bins.length) { tbody.innerHTML='<tr><td colspan="7" class="empty-row">No bins yet.</td></tr>'; return; }
+  tbody.innerHTML = bins.map(b => {
+    const color = fillColor(b.fillLevel);
+    return `<tr>
+      <td><b>${b.binId}</b></td>
+      <td>${b.location.address}</td>
+      <td>${b.zone}</td>
+      <td style="text-transform:capitalize">${b.type}</td>
+      <td>
+        <div class="fill-inline">
+          <div class="fill-bar-sm"><div style="width:${b.fillLevel}%;background:${color}"></div></div>
+          <span style="font-size:0.72rem;font-weight:700;color:${color};min-width:32px">${b.fillLevel}%</span>
+        </div>
+      </td>
+      <td><span class="status-badge status-${b.status}">${b.status}</span></td>
+      <td><button class="btn-del" onclick="deleteBin('${b._id}')">Delete</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function addBin() {
+  const binId   = document.getElementById('b-id').value.trim();
+  const address = document.getElementById('b-addr').value.trim();
+  const zone    = document.getElementById('b-zone').value;
+  const type    = document.getElementById('b-type').value;
+  const lat     = parseFloat(document.getElementById('b-lat').value);
+  const lon     = parseFloat(document.getElementById('b-lon').value);
+  if (!binId||!address||!lat||!lon) return showToast('All fields required','error');
+  const res = await fetch('/api/bins', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ binId, location:{lat,lon,address}, zone, type, fillLevel:0 }) });
+  const data = await res.json();
+  if (!res.ok) return showToast(data.error,'error');
+  showToast('Bin added');
+  document.getElementById('b-id').value=''; document.getElementById('b-addr').value='';
+  document.getElementById('b-lat').value=''; document.getElementById('b-lon').value='';
+  loadBins();
+}
+
+async function deleteBin(id) {
+  if (!confirm('Delete this bin? This cannot be undone.')) return;
+  await fetch('/api/bins/'+id, { method:'DELETE' });
+  showToast('Bin deleted');
+  loadBins();
+}
+
+// ── ROUTE HISTORY ─────────────────────────────────────
+async function loadRoutes() {
+  const routes = await fetch('/api/routes').then(r=>r.json());
+  const tbody = document.getElementById('route-body');
+  if (!routes.length) { tbody.innerHTML='<tr><td colspan="8" class="empty-row">No routes yet. Generate one from the Route Planner.</td></tr>'; return; }
+  tbody.innerHTML = routes.map(r => {
+    const statusClass = 'route-'+r.status.replace(' ','-');
+    const actions = r.status==='pending'
+      ? `<div style="display:flex;gap:4px">
+           <button class="btn-sm" onclick="startRoute('${r._id}')">Start</button>
+           <button class="btn-sm" style="color:#1a7a3a;border-color:#1a7a3a" onclick="completeRoute('${r._id}')">Complete</button>
+           <button class="btn-del" onclick="deleteRoute('${r._id}')">Delete</button>
+         </div>`
+      : r.status==='in-progress'
+      ? `<div style="display:flex;gap:4px">
+           <button class="btn-sm" style="color:#1a7a3a;border-color:#1a7a3a" onclick="completeRoute('${r._id}')">Mark Complete</button>
+           <button class="btn-del" onclick="deleteRoute('${r._id}')">Delete</button>
+         </div>`
+      : `<button class="btn-del" onclick="deleteRoute('${r._id}')">Delete</button>`;
+    return `<tr>
+      <td><b>${r.routeId}</b></td>
+      <td>${r.truck}</td>
+      <td>${r.zone}</td>
+      <td>${r.bins.length} bins</td>
+      <td>${r.totalDistance} km</td>
+      <td>${new Date(r.createdAt).toLocaleString()}</td>
+      <td><span class="route-status ${statusClass}">${r.status}</span></td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function startRoute(id) {
+  await fetch('/api/routes/'+id+'/start', { method:'PATCH' });
+  showToast('Route marked as in-progress');
+  loadRoutes();
+}
+
+async function completeRoute(id) {
+  if (!confirm('Mark this route complete? All bins will be reset to 0%.')) return;
+  const res = await fetch('/api/routes/'+id+'/complete', { method:'PATCH' });
+  const data = await res.json();
+  if (!res.ok) return showToast(data.error,'error');
+  showToast('Route completed — bins reset');
+  loadRoutes();
+}
+
+async function deleteRoute(id) {
+  if (!confirm('Delete this route record?')) return;
+  await fetch('/api/routes/'+id, { method:'DELETE' });
+  showToast('Route deleted');
+  loadRoutes();
+}
+
+checkAuth();
+loadTrucks();
+</script>
+</body>
+</html>

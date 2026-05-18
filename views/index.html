@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GarbageOpt — Dashboard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-brand">GarbageOpt</div>
+  <div class="nav-links">
+    <a href="/" class="active">Dashboard</a>
+    <a href="/routes">Route Planner</a>
+    <a href="/analytics">Analytics</a>
+    <a href="/manage">Manage</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px"><span id="nav-user" style="font-size:0.75rem;color:#999"></span><button onclick="logout()" class="btn-secondary" style="padding:5px 12px;font-size:0.75rem">Logout</button><div class="nav-status"><span class="live-dot"></span> Live</div></div>
+</nav>
+
+<div class="layout">
+  <aside class="sidebar">
+
+    <div class="stat-cards">
+      <div class="stat-card red">
+        <div class="stat-card-indicator"></div>
+        <div class="stat-val" id="critical-count">—</div>
+        <div class="stat-label">Critical (&ge;80%)</div>
+      </div>
+      <div class="stat-card yellow">
+        <div class="stat-card-indicator"></div>
+        <div class="stat-val" id="moderate-count">—</div>
+        <div class="stat-label">Moderate (50–79%)</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-card-indicator"></div>
+        <div class="stat-val" id="low-count">—</div>
+        <div class="stat-label">Low (&lt;50%)</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-card-indicator"></div>
+        <div class="stat-val" id="avg-fill">—</div>
+        <div class="stat-label">Avg Fill</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-header">Filters</div>
+      <div class="filter-group">
+        <label>Zone</label>
+        <select id="zone-filter" onchange="applyFilter()">
+          <option value="All">All Zones</option>
+          <option value="Zone A">Zone A</option>
+          <option value="Zone B">Zone B</option>
+          <option value="Zone C">Zone C</option>
+          <option value="Zone D">Zone D</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Type</label>
+        <select id="type-filter" onchange="applyFilter()">
+          <option value="">All Types</option>
+          <option value="general">General</option>
+          <option value="recyclable">Recyclable</option>
+          <option value="organic">Organic</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Min Fill: <span id="fill-val">0</span>%</label>
+        <input type="range" id="fill-filter" min="0" max="100" value="0"
+          oninput="document.getElementById('fill-val').textContent=this.value;applyFilter()">
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-header">Bin List</div>
+      <div id="bin-list" class="bin-list"></div>
+    </div>
+
+    <div class="sidebar-section">
+      <button class="btn-primary full-width" onclick="location.href='/routes'">
+        Generate Optimal Route
+      </button>
+    </div>
+
+  </aside>
+
+  <main class="map-area">
+    <div id="map"></div>
+    <div class="map-legend">
+      <div class="legend-item"><span class="dot red"></span> Critical &ge;80%</div>
+      <div class="legend-item"><span class="dot yellow"></span> Moderate 50–79%</div>
+      <div class="legend-item"><span class="dot green"></span> Low &lt;50%</div>
+    </div>
+  </main>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal()">x</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+let map, markers = {}, allBins = [];
+
+map = L.map('map').setView([23.3441, 85.3096], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+L.marker([23.3441, 85.3096], {
+  icon: L.divIcon({
+    className: '',
+    html: '<div class="depot-marker">DEPOT</div>',
+    iconSize: [60, 24], iconAnchor: [30, 24]
+  })
+}).addTo(map).bindPopup('<b>Main Depot</b><br>Start &amp; End point');
+
+function fillColor(level) {
+  if (level >= 80) return '#c0392b';
+  if (level >= 50) return '#b7820a';
+  return '#1a7a3a';
+}
+
+function binIcon(bin) {
+  const color = fillColor(bin.fillLevel);
+  const typeLabel = bin.type === 'recyclable' ? 'REC' : bin.type === 'organic' ? 'ORG' : 'GEN';
+  return L.divIcon({
+    className: '',
+    html: `<div class="bin-marker" style="border-color:${color}">
+      <div class="bin-type-label">${typeLabel}</div>
+      <div class="bin-fill-bar"><div style="width:${bin.fillLevel}%;background:${color}"></div></div>
+      <div class="bin-pct" style="color:${color}">${bin.fillLevel}%</div>
+    </div>`,
+    iconSize: [52, 52], iconAnchor: [26, 52],
+  });
+}
+
+function renderMarkers(bins) {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+  bins.forEach(bin => {
+    const m = L.marker([bin.location.lat, bin.location.lon], { icon: binIcon(bin) })
+      .addTo(map).on('click', () => showBinModal(bin));
+    markers[bin._id] = m;
+  });
+}
+
+function renderBinList(bins) {
+  document.getElementById('bin-list').innerHTML = bins.map(b => `
+    <div class="bin-list-item" onclick="flyTo('${b._id}')">
+      <div class="bin-list-left">
+        <span class="bin-dot" style="background:${fillColor(b.fillLevel)}"></span>
+        <div>
+          <div class="bin-id">${b.binId}</div>
+          <div class="bin-addr">${b.location.address}</div>
+        </div>
+      </div>
+      <div class="bin-pct-badge" style="color:${fillColor(b.fillLevel)}">${b.fillLevel}%</div>
+    </div>`).join('');
+}
+
+function updateStats(bins) {
+  const critical = bins.filter(b => b.fillLevel >= 80).length;
+  const moderate = bins.filter(b => b.fillLevel >= 50 && b.fillLevel < 80).length;
+  const low = bins.filter(b => b.fillLevel < 50).length;
+  const avg = bins.length ? (bins.reduce((s,b)=>s+b.fillLevel,0)/bins.length).toFixed(1) : 0;
+  document.getElementById('critical-count').textContent = critical;
+  document.getElementById('moderate-count').textContent = moderate;
+  document.getElementById('low-count').textContent = low;
+  document.getElementById('avg-fill').textContent = avg + '%';
+}
+
+function applyFilter() {
+  const zone = document.getElementById('zone-filter').value;
+  const type = document.getElementById('type-filter').value;
+  const minFill = parseInt(document.getElementById('fill-filter').value);
+  const filtered = allBins.filter(b =>
+    (zone === 'All' || b.zone === zone) &&
+    (!type || b.type === type) &&
+    b.fillLevel >= minFill
+  );
+  renderMarkers(filtered);
+  renderBinList(filtered);
+}
+
+function flyTo(id) {
+  const bin = allBins.find(b => b._id === id);
+  if (bin) { map.flyTo([bin.location.lat, bin.location.lon], 16, { duration: 0.8 }); showBinModal(bin); }
+}
+
+function showBinModal(bin) {
+  const color = fillColor(bin.fillLevel);
+  const statusLabel = bin.fillLevel >= 80 ? 'Critical' : bin.fillLevel >= 50 ? 'Moderate' : 'Normal';
+  document.getElementById('modal-content').innerHTML = `
+    <div class="modal-header">
+      <h2>${bin.binId}</h2>
+      <div class="modal-sub">${bin.location.address} &mdash; ${bin.zone}</div>
+    </div>
+    <div class="modal-fill">
+      <div class="fill-label">Fill Level</div>
+      <div class="fill-bar-big">
+        <div style="width:${bin.fillLevel}%;background:${color}"></div>
+      </div>
+      <div class="fill-pct" style="color:${color}">${bin.fillLevel}%</div>
+    </div>
+    <div class="modal-grid">
+      <div class="modal-info"><span>Type</span><b>${bin.type}</b></div>
+      <div class="modal-info"><span>Status</span><b style="color:${color}">${statusLabel}</b></div>
+      <div class="modal-info"><span>Bin Status</span><b>${bin.status}</b></div>
+      <div class="modal-info"><span>Last Collected</span><b>${new Date(bin.lastCollected).toLocaleDateString()}</b></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="collectBin('${bin._id}')">Mark Collected</button>
+      <button class="btn-secondary" onclick="closeModal()">Close</button>
+    </div>`;
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+async function collectBin(id) {
+  await fetch(`/api/bins/${id}/collect`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ truckId: 'T-01' })
+  });
+  showToast('Bin marked as collected');
+  closeModal();
+}
+
+function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+
+const evtSource = new EventSource('/api/stream');
+evtSource.onmessage = e => {
+  allBins = JSON.parse(e.data);
+  updateStats(allBins);
+  applyFilter();
+};
+</script>
+</body>
+</html>

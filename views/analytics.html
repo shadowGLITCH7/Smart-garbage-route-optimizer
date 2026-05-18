@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GarbageOpt — Analytics</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style> html, body { overflow: auto; height: auto; } </style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-brand">GarbageOpt</div>
+  <div class="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/routes">Route Planner</a>
+    <a href="/analytics" class="active">Analytics</a>
+    <a href="/manage">Manage</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px"><span id="nav-user" style="font-size:0.75rem;color:#999"></span><button onclick="logout()" class="btn-secondary" style="padding:5px 12px;font-size:0.75rem">Logout</button><div class="nav-status"><span class="live-dot"></span> Live</div></div>
+</nav>
+
+<div class="analytics-layout">
+  <div class="analytics-title">Analytics</div>
+
+  <div class="analytics-cards">
+    <div class="a-card"><div class="a-card-label">Total Routes</div><div class="a-card-val blue" id="total-routes">—</div></div>
+    <div class="a-card"><div class="a-card-label">Distance Covered</div><div class="a-card-val" id="total-dist">—</div></div>
+    <div class="a-card"><div class="a-card-label">CO2 Saved (kg)</div><div class="a-card-val green" id="total-co2">—</div></div>
+    <div class="a-card"><div class="a-card-label">Total Collections</div><div class="a-card-val purple" id="total-collections">—</div></div>
+    <div class="a-card"><div class="a-card-label">Total Bins</div><div class="a-card-val" id="total-bins">—</div></div>
+    <div class="a-card"><div class="a-card-label">Critical Bins</div><div class="a-card-val" style="color:var(--red)" id="critical-bins">—</div></div>
+    <div class="a-card"><div class="a-card-label">Avg Fill Level</div><div class="a-card-val yellow" id="avg-fill">—</div></div>
+    <div class="a-card"><div class="a-card-label">Active Bins</div><div class="a-card-val green" id="active-bins">—</div></div>
+  </div>
+
+  <div class="charts-grid">
+    <div class="chart-card"><div class="chart-title">Fill Level Distribution</div><div class="chart-wrap"><canvas id="fill-chart"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">Collections by Zone</div><div class="chart-wrap"><canvas id="zone-chart"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">Bin Types</div><div class="chart-wrap"><canvas id="type-chart"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">Average Fill by Zone (%)</div><div class="chart-wrap"><canvas id="zone-fill-chart"></canvas></div></div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:12px">
+    <div class="chart-title">Zone Breakdown</div>
+    <table class="logs-table" id="zone-table">
+      <thead><tr><th>Zone</th><th>Total Bins</th><th>Critical</th><th>Avg Fill</th><th>Status</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Recent Collection Logs</div>
+    <table class="logs-table">
+      <thead><tr><th>Bin ID</th><th>Zone</th><th>Fill at Collection</th><th>Truck</th><th>Time</th></tr></thead>
+      <tbody id="logs-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+Chart.defaults.color = '#999';
+Chart.defaults.borderColor = '#e4e4e4';
+Chart.defaults.font.family = 'Inter, sans-serif';
+Chart.defaults.font.size = 11;
+
+const GRAYS = ['#0a0a0a','#3a3a3a','#6b6b6b','#999','#ccc'];
+const STATUS_COLORS = { red: '#c0392b', yellow: '#b7820a', green: '#1a7a3a' };
+
+async function loadAll() {
+  const [bins, analytics, logs, stats] = await Promise.all([
+    fetch('/api/bins').then(r => r.json()),
+    fetch('/api/routes/analytics/summary').then(r => r.json()),
+    fetch('/api/routes/logs/all').then(r => r.json()),
+    fetch('/api/bins/stats/summary').then(r => r.json()),
+  ]);
+
+  document.getElementById('total-routes').textContent = analytics.totalRoutes;
+  document.getElementById('total-dist').textContent = analytics.totalDistance + ' km';
+  document.getElementById('total-co2').textContent = analytics.totalCo2Saved + ' kg';
+  document.getElementById('total-collections').textContent = analytics.totalCollections;
+  document.getElementById('total-bins').textContent = stats.total;
+  document.getElementById('critical-bins').textContent = stats.critical;
+  document.getElementById('avg-fill').textContent = stats.avgFill + '%';
+  document.getElementById('active-bins').textContent = bins.filter(b=>b.status==='active').length;
+
+  new Chart(document.getElementById('fill-chart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Critical (>=80%)', 'Moderate (50-79%)', 'Low (<50%)'],
+      datasets: [{ data: [stats.critical, stats.moderate, stats.low],
+        backgroundColor: ['#c0392b','#b7820a','#1a7a3a'], borderWidth: 0 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins: { legend: { position:'bottom', labels:{ boxWidth:10, padding:10 } } } }
+  });
+
+  const zoneLabels = Object.keys(analytics.byZone);
+  new Chart(document.getElementById('zone-chart'), {
+    type: 'bar',
+    data: {
+      labels: zoneLabels.length ? zoneLabels : ['No data'],
+      datasets: [{ label:'Collections', data: zoneLabels.length ? Object.values(analytics.byZone) : [0],
+        backgroundColor: GRAYS, borderRadius:4, borderWidth:0 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins: { legend:{ display:false } },
+      scales: { y:{ beginAtZero:true, ticks:{ stepSize:1 }, grid:{ color:'#f0f0f0' } },
+                x:{ grid:{ display:false } } } }
+  });
+
+  const typeCount = { general:0, recyclable:0, organic:0 };
+  bins.forEach(b => { if (typeCount[b.type]!==undefined) typeCount[b.type]++; });
+  new Chart(document.getElementById('type-chart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['General','Recyclable','Organic'],
+      datasets: [{ data: [typeCount.general,typeCount.recyclable,typeCount.organic],
+        backgroundColor: ['#0a0a0a','#6b6b6b','#ccc'], borderWidth:0 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins: { legend:{ position:'bottom', labels:{ boxWidth:10, padding:10 } } } }
+  });
+
+  const zoneKeys = Object.keys(stats.zones);
+  const zoneFills = zoneKeys.map(z => parseFloat(stats.zones[z].avgFill));
+  new Chart(document.getElementById('zone-fill-chart'), {
+    type: 'bar',
+    data: {
+      labels: zoneKeys.length ? zoneKeys : ['No data'],
+      datasets: [{ label:'Avg Fill %', data: zoneFills.length ? zoneFills : [0],
+        backgroundColor: zoneFills.map(f => f>=80?'#c0392b':f>=50?'#b7820a':'#1a7a3a'),
+        borderRadius:4, borderWidth:0 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins: { legend:{ display:false } },
+      scales: { y:{ beginAtZero:true, max:100, ticks:{ callback:v=>v+'%' }, grid:{ color:'#f0f0f0' } },
+                x:{ grid:{ display:false } } } }
+  });
+
+  document.querySelector('#zone-table tbody').innerHTML =
+    Object.entries(stats.zones).map(([zone,z]) => {
+      const s = z.avgFill>=70 ? 'Needs attention' : z.avgFill>=40 ? 'Moderate' : 'Good';
+      const sc = z.avgFill>=70 ? 'var(--red)' : z.avgFill>=40 ? 'var(--yellow)' : 'var(--green)';
+      return `<tr>
+        <td><b>${zone}</b></td>
+        <td>${z.total}</td>
+        <td style="color:var(--red)">${z.critical}</td>
+        <td>${z.avgFill}%</td>
+        <td style="color:${sc};font-weight:600">${s}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted2);padding:1.5rem">No data yet</td></tr>';
+
+  document.getElementById('logs-body').innerHTML = logs.length
+    ? logs.map(l => `<tr>
+        <td><b>${l.binCode}</b></td>
+        <td>${l.zone}</td>
+        <td style="color:${l.fillLevelAtCollection>=80?'var(--red)':l.fillLevelAtCollection>=50?'var(--yellow)':'var(--green)'}">
+          ${l.fillLevelAtCollection}%</td>
+        <td>${l.truckId}</td>
+        <td>${new Date(l.collectedAt).toLocaleString()}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" style="text-align:center;color:var(--muted2);padding:1.5rem">No collections yet</td></tr>';
+}
+
+async function checkAuth() {
+  const res = await fetch("/api/auth/me");
+  if (!res.ok) { location.href="/login"; return; }
+  const { user } = await res.json();
+  document.getElementById("nav-user").textContent = user.name;
+}
+async function logout() {
+  await fetch("/api/auth/logout", { method:"POST" });
+  location.href="/login";
+}
+checkAuth();
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
